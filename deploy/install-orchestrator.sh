@@ -11,9 +11,10 @@ sudo install -m 0755 \
     "$REPO_ROOT/usr-local-sbin/backup-run" \
     /usr/local/sbin/backup-run
 
-# 2. directories
+# 2. directories — readable by local_admin (the status-api runs as that user)
 sudo mkdir -p /etc/backup9 /var/lib/backup9/state /var/log/backup9
-sudo chmod 0750 /etc/backup9 /var/lib/backup9 /var/log/backup9
+sudo chgrp local_admin /etc/backup9 /var/lib/backup9 /var/lib/backup9/state
+sudo chmod 0750 /etc/backup9 /var/lib/backup9 /var/lib/backup9/state /var/log/backup9
 
 # 3. jobs.yaml — only copy if not already locally edited
 if [[ -f /etc/backup9/jobs.yaml ]]; then

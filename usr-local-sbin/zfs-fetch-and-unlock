@@ -11,7 +11,7 @@ set -euo pipefail
 
 POOL="${1:-backup}"
 APP81_HOST="100.67.4.81"
-APP81_USER="backup9-fetch"
+APP81_USER="local_admin"
 KEY_TMPFS_DIR="/run/zfs-keys"
 KEY_PATH="$KEY_TMPFS_DIR/${POOL}.key"
 SSH_KEY="/root/.ssh/id_ed25519_app81-fetch"

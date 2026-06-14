@@ -29,7 +29,8 @@ else
     log "generating initial encryption key at $KEYFILE"
     sudo mkdir -p /etc/zfs
     sudo chmod 700 /etc/zfs
-    sudo install -m 600 /dev/stdin "$KEYFILE" < <(head -c 32 /dev/urandom | base64)
+    # keyformat=raw expects exactly 32 raw bytes; don't base64-encode
+    sudo install -m 600 /dev/stdin "$KEYFILE" < <(head -c 32 /dev/urandom)
 
     log "creating pool '$POOL' on /dev/$VG/$LV with native encryption"
     sudo zpool create \
