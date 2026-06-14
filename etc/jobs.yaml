@@ -39,7 +39,9 @@ jobs:
     dest: /mnt/backup/freja/TC
     zfs_dataset: backup/freja/TC
     schedule: "*-*-* 02:00:00"
-    rsync_extra: []
+    rsync_extra:
+      - "--exclude=/Music"
+      - "--exclude=/Movies"
 
   - name: freja-Yvonne
     source: //freja/Yvonne
