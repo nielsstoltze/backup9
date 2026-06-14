@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""backup-run — orchestrate a single backup job from jobs.yaml.
+
+  backup-run <job-name>          # run the named job
+  backup-run --list              # list known jobs
+  backup-run --json-status <job> # last-run status as JSON (for FastAPI)
+
+Each job:
+  1. cifs-mounts the SMB source read-only at /run/backup-mounts/<job>
+  2. rsync -aH --delete-after --partial src/ /mnt/backup/<dest>/
+  3. zfs snapshot <pool>/<dest>@auto-<isoutc>
+  4. unmount
+  5. writes JSON result to /var/lib/backup9/state/<job>.json
+  6. emits Telegram alert on failure
+
+State + log handled per job — sanoid handles snapshot retention.
+"""
+import argparse
+import datetime as dt
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import yaml
+
+JOBS_YAML = Path("/etc/backup9/jobs.yaml")
+SECRETS_ENV = Path("/etc/backup9/secrets.env")
+STATE_DIR = Path("/var/lib/backup9/state")
+MOUNT_BASE = Path("/run/backup-mounts")
+LOG_DIR = Path("/var/log/backup9")
+TELEGRAM_NOTIFY = "/usr/local/sbin/telegram-notify"  # optional; missing = no alert
+
+
+def load_env(path: Path) -> dict:
+    out = {}
+    if not path.exists():
+        return out
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip().strip("'").strip('"')
+    return out
+
+
+def load_jobs() -> dict:
+    return yaml.safe_load(JOBS_YAML.read_text())
+
+
+def sh(cmd, *, check=True, env=None, capture=False):
+    """Run a shell-quoted command list, surface stderr to journal."""
+    if isinstance(cmd, str):
+        cmd = shlex.split(cmd)
+    print(f"+ {' '.join(shlex.quote(c) for c in cmd)}", flush=True)
+    return subprocess.run(
+        cmd, check=check, env=env,
+        capture_output=capture, text=True,
+    )
+
+
+def notify(level: str, msg: str):
+    if not Path(TELEGRAM_NOTIFY).exists():
+        return
+    try:
+        subprocess.run(
+            [TELEGRAM_NOTIFY, "--level", level, msg],
+            timeout=20, check=False,
+        )
+    except Exception as e:
+        print(f"telegram-notify failed: {e}", file=sys.stderr)
+
+
+def write_state(job: str, payload: dict):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    (STATE_DIR / f"{job}.json").write_text(json.dumps(payload, indent=2))
+
+
+def run_job(job_name: str) -> int:
+    jobs = load_jobs()
+    job = next((j for j in jobs["jobs"] if j["name"] == job_name), None)
+    if not job:
+        print(f"unknown job: {job_name}", file=sys.stderr)
+        return 2
+
+    env = load_env(SECRETS_ENV)
+    started = dt.datetime.now(dt.timezone.utc)
+    mount_pt = MOUNT_BASE / job_name
+    mount_pt.mkdir(parents=True, exist_ok=True)
+
+    src = job["source"]                  # //freja/Backup
+    dest = Path(job["dest"])             # /mnt/backup/freja/Backup
+    pool_dataset = job["zfs_dataset"]    # backup/freja/Backup
+
+    result = {
+        "job": job_name,
+        "source": src,
+        "dest": str(dest),
+        "started": started.isoformat(),
+        "status": "running",
+    }
+    write_state(job_name, result)
+
+    try:
+        # 1. cifs-mount source read-only
+        cifs_opts = (
+            f"username={env['FREJA_USER']},password={env['FREJA_PASS']},"
+            f"ro,vers=3.0,uid=0,gid=0,file_mode=0444,dir_mode=0555,iocharset=utf8"
+        )
+        sh(["mount", "-t", "cifs", src, str(mount_pt), "-o", cifs_opts])
+
+        # 2. rsync into dataset mountpoint
+        rsync_cmd = [
+            "rsync", "-aH", "--delete-after", "--partial",
+            "--numeric-ids",
+            "--stats", "--human-readable",
+            f"{mount_pt}/", f"{dest}/",
+        ]
+        for flag in job.get("rsync_extra", []):
+            rsync_cmd.append(flag)
+        sh(rsync_cmd)
+
+        # 3. ZFS snapshot
+        snap = f"{pool_dataset}@auto-{started.strftime('%Y-%m-%dT%H%M%SZ')}"
+        sh(["zfs", "snapshot", snap])
+        result["snapshot"] = snap
+
+    except subprocess.CalledProcessError as e:
+        result["status"] = "failed"
+        result["error"] = f"exit {e.returncode} from {e.cmd}"
+        notify("FAIL", f"backup9 {job_name} failed: {result['error']}")
+        return 1
+    finally:
+        # 4. unmount even if we errored
+        sh(["umount", "-l", str(mount_pt)], check=False)
+        finished = dt.datetime.now(dt.timezone.utc)
+        result["finished"] = finished.isoformat()
+        result["duration_s"] = (finished - started).total_seconds()
+        if result["status"] == "running":
+            result["status"] = "ok"
+        write_state(job_name, result)
+
+    print(f"OK {job_name} in {result['duration_s']:.1f}s")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("job", nargs="?")
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--json-status", metavar="JOB")
+    args = ap.parse_args()
+
+    if args.list:
+        for j in load_jobs()["jobs"]:
+            print(j["name"])
+        return 0
+
+    if args.json_status:
+        f = STATE_DIR / f"{args.json_status}.json"
+        if not f.exists():
+            print("{}")
+        else:
+            print(f.read_text())
+        return 0
+
+    if not args.job:
+        ap.error("supply a job name or --list / --json-status")
+    return run_job(args.job)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

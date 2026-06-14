@@ -1,0 +1,15 @@
+[Unit]
+Description=Schedule for backup job %i
+# Each instance overrides the default OnCalendar via a drop-in created by
+# install-orchestrator.sh from the per-job schedule in jobs.yaml.
+
+[Timer]
+# Placeholder — install-orchestrator.sh writes the actual OnCalendar into
+# /etc/systemd/system/backup-run@%i.timer.d/schedule.conf so we don't have
+# to ship one timer per job.
+OnCalendar=*-*-* 03:33:33
+Persistent=true
+Unit=backup-run@%i.service
+
+[Install]
+WantedBy=timers.target

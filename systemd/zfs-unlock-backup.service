@@ -1,0 +1,22 @@
+[Unit]
+Description=Fetch encryption key from app81 + unlock ZFS pool 'backup'
+DefaultDependencies=no
+Wants=network-online.target
+After=network-online.target zfs-import.target
+Before=zfs-mount.service local-fs.target sysinit.target
+ConditionPathExists=/etc/zfs/zpool.cache
+ConditionPathExists=/usr/local/sbin/zfs-fetch-and-unlock
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/zfs-fetch-and-unlock backup
+# If app81 is briefly unreachable on boot, retry a few times before giving
+# up — we still want to fail loudly if it's *really* down.
+Restart=on-failure
+RestartSec=15s
+StartLimitBurst=4
+StartLimitIntervalSec=300
+
+[Install]
+WantedBy=zfs.target

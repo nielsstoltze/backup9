@@ -1,0 +1,13 @@
+[Unit]
+Description=Run backup job %i
+After=network-online.target zfs-unlock-backup.service
+Wants=network-online.target
+Requires=zfs-unlock-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/backup-run %i
+StandardOutput=journal
+StandardError=journal
+# don't pile up if the previous run is still going (large initial pull)
+TimeoutStartSec=12h

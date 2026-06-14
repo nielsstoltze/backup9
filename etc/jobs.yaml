@@ -1,0 +1,49 @@
+# backup9 jobs SoT. One entry per FREJA share; orchestrator reads this.
+#
+# Schedules use systemd OnCalendar syntax — installed by install-orchestrator.sh
+# as backup-run@<job>.timer drop-ins.
+#
+# Retention is handled by sanoid (etc/sanoid.conf) — not here.
+
+jobs:
+  - name: freja-Backup
+    source: //freja/Backup
+    dest: /mnt/backup/freja/Backup
+    zfs_dataset: backup/freja/Backup
+    schedule: "*-*-* 02:30:00"
+    rsync_extra: []
+
+  - name: freja-Birgitte
+    source: //freja/Birgitte
+    dest: /mnt/backup/freja/Birgitte
+    zfs_dataset: backup/freja/Birgitte
+    schedule: "*-*-* 01:00:00"
+    rsync_extra: []
+
+  - name: freja-Scanned
+    source: //freja/Scanned
+    dest: /mnt/backup/freja/Scanned
+    zfs_dataset: backup/freja/Scanned
+    schedule: "*-*-* 04:00:00"
+    rsync_extra: []
+
+  - name: freja-Stoltze
+    source: //freja/Stoltze
+    dest: /mnt/backup/freja/Stoltze
+    zfs_dataset: backup/freja/Stoltze
+    schedule: "*-*-* 00:05:00"
+    rsync_extra: []
+
+  - name: freja-TC
+    source: //freja/TC
+    dest: /mnt/backup/freja/TC
+    zfs_dataset: backup/freja/TC
+    schedule: "*-*-* 02:00:00"
+    rsync_extra: []
+
+  - name: freja-Yvonne
+    source: //freja/Yvonne
+    dest: /mnt/backup/freja/Yvonne
+    zfs_dataset: backup/freja/Yvonne
+    schedule: "*-*-* 03:00:00"
+    rsync_extra: []

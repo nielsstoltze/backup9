@@ -1,0 +1,49 @@
+#!/bin/bash
+# Fetch the ZFS pool's raw 32-byte encryption key from app81 over SSH,
+# load it into ZFS, mount the pool, then shred the on-disk copy.
+#
+#   /usr/local/sbin/zfs-fetch-and-unlock <pool>
+#
+# The key never touches the backup9 filesystem outside /run (tmpfs).
+# If app81 is unreachable, we exit non-zero so the systemd unit fails
+# loudly — the pool stays locked and the orchestrator will refuse to run.
+set -euo pipefail
+
+POOL="${1:-backup}"
+APP81_HOST="100.67.4.81"
+APP81_USER="backup9-fetch"
+KEY_TMPFS_DIR="/run/zfs-keys"
+KEY_PATH="$KEY_TMPFS_DIR/${POOL}.key"
+SSH_KEY="/root/.ssh/id_ed25519_app81-fetch"
+
+log() { logger -t zfs-fetch-and-unlock "$*"; echo "$*" >&2; }
+
+mkdir -p "$KEY_TMPFS_DIR"
+chmod 700 "$KEY_TMPFS_DIR"
+mount | grep -q " $KEY_TMPFS_DIR " || mount -t tmpfs -o size=1M,mode=0700 tmpfs "$KEY_TMPFS_DIR"
+
+log "fetching ZFS key for pool=$POOL from $APP81_USER@$APP81_HOST"
+ssh -i "$SSH_KEY" \
+    -o BatchMode=yes \
+    -o ConnectTimeout=10 \
+    -o StrictHostKeyChecking=yes \
+    -o UserKnownHostsFile=/root/.ssh/known_hosts \
+    "$APP81_USER@$APP81_HOST" "$POOL" > "$KEY_PATH"
+
+if [[ ! -s "$KEY_PATH" ]]; then
+    log "ERROR: empty key file received"
+    rm -f "$KEY_PATH"
+    exit 2
+fi
+chmod 600 "$KEY_PATH"
+
+log "loading key into pool=$POOL"
+zfs load-key -L "file://$KEY_PATH" "$POOL"
+
+log "mounting datasets under pool=$POOL"
+zfs mount -a
+
+log "shredding on-disk key copy"
+shred -u -n 1 "$KEY_PATH" || rm -f "$KEY_PATH"
+
+log "OK: pool=$POOL unlocked + mounted"
