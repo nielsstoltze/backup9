@@ -17,6 +17,7 @@ State + log handled per job — sanoid handles snapshot retention.
 """
 import argparse
 import datetime as dt
+import fcntl
 import json
 import os
 import shlex
@@ -26,6 +27,12 @@ import time
 from pathlib import Path
 
 import yaml
+
+# Serialize concurrent backup-run invocations on the same host. Timer
+# schedule has them ≥30 min apart, but operator-triggered catch-up runs
+# could otherwise fire in parallel and saturate FREJA's SMB + backup9's
+# disk. flock blocks; second instance waits for first to finish.
+LOCK_PATH = Path("/run/backup-run.lock")
 
 JOBS_YAML = Path("/etc/backup9/jobs.yaml")
 SECRETS_ENV = Path("/etc/backup9/secrets.env")
@@ -86,6 +93,14 @@ def run_job(job_name: str) -> int:
     if not job:
         print(f"unknown job: {job_name}", file=sys.stderr)
         return 2
+
+    lock_fp = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_fp, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"another backup-run is active; waiting for global lock "
+              f"{LOCK_PATH} before starting {job_name}", flush=True)
+        fcntl.flock(lock_fp, fcntl.LOCK_EX)
 
     env = load_env(SECRETS_ENV)
     started = dt.datetime.now(dt.timezone.utc)

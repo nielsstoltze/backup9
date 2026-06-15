@@ -64,14 +64,15 @@ def index():
         snap = st.get("snapshot") or ""
         err = st.get("error") or ""
 
+        # Apollo accessibility: text-label + glyph + colour, never colour-only.
         if status == "ok":
-            glyph, css, label = "OK", "ok", "OK"
+            glyph, css, label = "✓", "ok",   "UP"
         elif status == "failed":
-            glyph, css, label = "FAIL", "fail", "FAIL"
+            glyph, css, label = "✕", "fail", "DOWN"
         elif status == "running":
-            glyph, css, label = "RUN", "warn", "RUNNING"
+            glyph, css, label = "▶", "warn", "RUNNING"
         else:
-            glyph, css, label = "--", "idle", "NEVER RUN"
+            glyph, css, label = "○", "idle", "NEVER RUN"
 
         if ah is None:
             age_str = "&mdash;"
@@ -88,7 +89,7 @@ def index():
         rows.append(f"""
         <tr class="{css}">
           <td class="name">{j['name']}</td>
-          <td><span class="badge {css}">{glyph}</span> {label}</td>
+          <td><span class="badge {css}">{glyph} {label}</span></td>
           <td>{age_str}</td>
           <td>{dur_str}</td>
           <td class="src">{j['source']}</td>
@@ -103,36 +104,54 @@ def index():
 <title>backup9 status</title>
 <link rel="icon" href="/favicon.ico">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://apollo.hoej.eu/static/lab-header.css">
+<script src="https://apollo.hoej.eu/static/lab-header.js" defer></script>
 <style>
-  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-         margin: 0; padding: 1.5rem; background: #f6f7f9; color: #222; }}
-  h1 {{ margin: 0 0 0.25rem; font-size: 1.3rem; }}
-  .sub {{ color: #666; font-size: 0.85rem; margin-bottom: 1rem; }}
-  table {{ border-collapse: collapse; width: 100%; background: white;
-           box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+  :root {{
+    --bg:#11141a; --fg:#d8dee9; --muted:#6c7686;
+    --card:#1a1f2a; --border:#2a3142; --accent:#5e9eff;
+    --up:#4ade80; --warn:#fbbf24; --down:#f87171;
+  }}
+  body {{ margin:0; padding:0; background:var(--bg); color:var(--fg);
+         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; }}
+  main {{ padding: 1.4rem 1.6rem; }}
+  h1 {{ margin: 0 0 0.25rem; font-size: 1.25rem; font-weight: 600; }}
+  .sub {{ color: var(--muted); font-size: 0.85rem; margin-bottom: 1rem; }}
+  table {{ border-collapse: collapse; width: 100%;
+           background: var(--card); border-radius: 9px; overflow: hidden;
+           border: 1px solid var(--border); }}
   th, td {{ padding: 0.55rem 0.85rem; text-align: left;
-            border-bottom: 1px solid #eee; font-size: 0.9rem; }}
-  th {{ background: #f0f1f4; font-weight: 600; font-size: 0.78rem;
-        text-transform: uppercase; letter-spacing: 0.5px; color: #555; }}
+            border-bottom: 1px solid var(--border); font-size: 0.88rem; }}
+  th {{ background:#161a23; font-weight:600; color:var(--muted);
+        font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.5px; }}
+  tr:last-child td {{ border-bottom: none; }}
   td.name {{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
              font-weight: 600; }}
-  td.src, td.snap {{ font-family: ui-monospace, monospace; font-size: 0.82rem;
-                     color: #666; }}
-  td.err {{ color: #b00; font-size: 0.8rem; }}
-  .badge {{ display: inline-block; padding: 2px 8px; border-radius: 3px;
-            font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
-            color: white; min-width: 38px; text-align: center; }}
-  .badge.ok   {{ background: #1c8a3f; }}
-  .badge.fail {{ background: #c0392b; }}
-  .badge.warn {{ background: #d68910; }}
-  .badge.idle {{ background: #888; }}
-  tr.fail td {{ background: #fff5f4; }}
-  tr.warn td {{ background: #fffbef; }}
-  footer {{ margin-top: 1rem; color: #888; font-size: 0.78rem; }}
-  footer a {{ color: #666; }}
+  td.src, td.snap {{ font-family: ui-monospace, monospace; font-size: 0.78rem;
+                     color: var(--muted); }}
+  td.err {{ color: var(--down); font-size: 0.78rem; }}
+  .badge {{ display: inline-block; padding: 2px 10px; border-radius: 4px;
+            font-size: 0.74rem; font-weight: 700; letter-spacing: 0.4px;
+            font-family: ui-monospace, monospace;
+            min-width: 78px; text-align: center; }}
+  .badge.ok   {{ background:rgba(74,222,128,.14); color:var(--up);
+                 border:1px solid rgba(74,222,128,.45); }}
+  .badge.fail {{ background:rgba(248,113,113,.14); color:var(--down);
+                 border:1px solid rgba(248,113,113,.45); }}
+  .badge.warn {{ background:rgba(251,191,36,.14); color:var(--warn);
+                 border:1px solid rgba(251,191,36,.45); }}
+  .badge.idle {{ background:rgba(108,118,134,.14); color:var(--muted);
+                 border:1px solid rgba(108,118,134,.45); }}
+  tr.fail td {{ background:rgba(248,113,113,.06); }}
+  tr.warn td {{ background:rgba(251,191,36,.06); }}
+  footer {{ margin-top: 1rem; color: var(--muted); font-size: 0.78rem; }}
+  footer a {{ color: var(--accent); text-decoration: none; }}
+  footer a:hover {{ text-decoration: underline; }}
 </style>
 </head>
 <body>
+<div id="lab-header"></div>
+<main>
   <h1>backup9 status</h1>
   <div class="sub">Offsite backup &mdash; FREJA shares pulled to encrypted ZFS pool</div>
   <table>
@@ -146,6 +165,7 @@ def index():
     JSON: <a href="/api/jobs">/api/jobs</a> &middot;
     Health: <a href="/health">/health</a>
   </footer>
+</main>
 </body>
 </html>"""
     return html
