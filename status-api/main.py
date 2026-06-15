@@ -1,6 +1,8 @@
 """backup9 status API. Reads /var/lib/backup9/state/<job>.json files written
 by backup-run and exposes them at :8094. JARVIS/Apollo poll this."""
 import json
+import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -38,6 +40,42 @@ def read_state(name: str) -> dict | None:
         return None
 
 
+# Cache live `zfs list` output for 15 s so the dashboard doesn't fork a
+# subprocess per request. The numbers move slowly (post-rsync + post-
+# snapshot), so a 15 s TTL is plenty fresh for the UI.
+_ZFS_CACHE_TTL = 15
+_zfs_cache: dict[str, tuple[float, dict[str, dict[str, int]]]] = {}
+
+
+def zfs_live_sizes() -> dict[str, dict[str, int]]:
+    """{dataset: {'used': bytes, 'referenced': bytes}} from one `zfs list`
+    sweep. Used to back-fill old state JSONs that lack the size fields
+    (state pre-dates backup-run carrying them, 2026-06-15)."""
+    now = time.time()
+    if _zfs_cache.get("v") and now - _zfs_cache["v"][0] < _ZFS_CACHE_TTL:
+        return _zfs_cache["v"][1]
+    out: dict[str, dict[str, int]] = {}
+    try:
+        r = subprocess.run(
+            ["zfs", "list", "-H", "-p", "-r",
+             "-o", "name,used,referenced", "backup/freja"],
+            capture_output=True, text=True, check=True, timeout=8,
+        )
+        for line in r.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            name, used, ref = parts[0], parts[1], parts[2]
+            try:
+                out[name] = {"used": int(used), "referenced": int(ref)}
+            except ValueError:
+                continue
+    except Exception:
+        pass
+    _zfs_cache["v"] = (now, out)
+    return out
+
+
 def age_hours(iso: str | None) -> float | None:
     if not iso:
         return None
@@ -48,6 +86,19 @@ def age_hours(iso: str | None) -> float | None:
         return None
 
 
+def fmt_bytes(n: int | None) -> str:
+    """Human-readable size for the dashboard. Base-1024 since we're
+    showing disk usage, not transfer rates."""
+    if n is None:
+        return "&mdash;"
+    f = float(n)
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if f < 1024 or u == "TB":
+            return f"{f:.1f} {u}"
+        f /= 1024
+    return f"{f:.1f} TB"
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "jobs": len(jobs_list())}
@@ -56,8 +107,16 @@ def health():
 @app.get("/", response_class=HTMLResponse)
 def index():
     rows = []
+    zfs_live = zfs_live_sizes()
     for j in jobs_list():
         st = read_state(j["name"]) or {}
+        # Live ZFS fallback for target sizes when the state JSON pre-dates
+        # the source/target instrumentation. Doesn't help source_bytes
+        # (only rsync --stats knows it).
+        live = zfs_live.get((j.get("zfs_dataset") or "").strip())
+        if live:
+            st.setdefault("target_bytes", live["used"])
+            st.setdefault("target_referenced_bytes", live["referenced"])
         status = st.get("status") or "no-run"
         ah = age_hours(st.get("finished"))
         dur = st.get("duration_s")
@@ -86,12 +145,22 @@ def index():
         dur_str = f"{dur:.1f} s" if dur and dur < 60 else \
                   f"{dur/60:.1f} min" if dur else "&mdash;"
 
+        src_size = fmt_bytes(st.get("source_bytes"))
+        tgt_size = fmt_bytes(st.get("target_bytes"))
+        tgt_ref = st.get("target_referenced_bytes")
+        tgt_tooltip = (f"used={fmt_bytes(st.get('target_bytes'))} "
+                       f"(live={fmt_bytes(tgt_ref)}, snapshots="
+                       f"{fmt_bytes((st.get('target_bytes') or 0) - (tgt_ref or 0)) if tgt_ref is not None else '?'})"
+                       if st.get("target_bytes") is not None else "")
+
         rows.append(f"""
         <tr class="{css}">
           <td class="name">{j['name']}</td>
           <td><span class="badge {css}">{glyph} {label}</span></td>
           <td>{age_str}</td>
           <td>{dur_str}</td>
+          <td class="num">{src_size}</td>
+          <td class="num" title="{tgt_tooltip}">{tgt_size}</td>
           <td class="src">{j['source']}</td>
           <td class="snap" title="{snap}">{snap.split('@')[-1] if '@' in snap else '&mdash;'}</td>
           <td class="err">{err}</td>
@@ -129,6 +198,7 @@ def index():
              font-weight: 600; }}
   td.src, td.snap {{ font-family: ui-monospace, monospace; font-size: 0.78rem;
                      color: var(--muted); }}
+  td.num, th.num {{ font-family: ui-monospace, monospace; text-align: right; }}
   td.err {{ color: var(--down); font-size: 0.78rem; }}
   .badge {{ display: inline-block; padding: 2px 10px; border-radius: 4px;
             font-size: 0.74rem; font-weight: 700; letter-spacing: 0.4px;
@@ -157,6 +227,7 @@ def index():
   <table>
     <thead><tr>
       <th>Job</th><th>Status</th><th>Last run</th><th>Duration</th>
+      <th class="num">Source size</th><th class="num">Target size</th>
       <th>Source</th><th>Last snapshot</th><th>Error</th>
     </tr></thead>
     <tbody>{''.join(rows)}</tbody>
@@ -174,8 +245,13 @@ def index():
 @app.get("/api/jobs")
 def list_jobs():
     out = []
+    zfs_live = zfs_live_sizes()
     for j in jobs_list():
         st = read_state(j["name"]) or {}
+        live = zfs_live.get((j.get("zfs_dataset") or "").strip())
+        if live:
+            st.setdefault("target_bytes", live["used"])
+            st.setdefault("target_referenced_bytes", live["referenced"])
         out.append({
             "name": j["name"],
             "source": j["source"],
@@ -185,6 +261,9 @@ def list_jobs():
             "last_run": st.get("finished"),
             "age_hours": age_hours(st.get("finished")),
             "duration_s": st.get("duration_s"),
+            "source_bytes": st.get("source_bytes"),
+            "target_bytes": st.get("target_bytes"),
+            "target_referenced_bytes": st.get("target_referenced_bytes"),
             "snapshot": st.get("snapshot"),
             "error": st.get("error"),
         })
