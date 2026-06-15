@@ -1,0 +1,27 @@
+#!/bin/bash
+# Called by systemd OnFailure= when a backup-related unit goes failed.
+# Pulls last journal lines for context and pushes a Telegram alert via
+# /usr/local/sbin/telegram-notify (HOEJ-AUTO bot — background errors).
+#
+#   /usr/local/sbin/systemd-failure-notify <failed-unit-name>
+#
+# Reads /etc/telegram.env (root-owned, 0600). Best-effort: never fails
+# the OnFailure chain even if Telegram is down.
+set -uo pipefail
+
+UNIT="${1:-unknown.service}"
+HOST="$(hostname -s)"
+
+LINES="$(journalctl -u "$UNIT" -n 12 --no-pager -o short-iso 2>/dev/null | tail -12)"
+RESULT="$(systemctl show -p Result --value "$UNIT" 2>/dev/null)"
+STATUS="$(systemctl show -p ExecMainStatus --value "$UNIT" 2>/dev/null)"
+
+MSG="ALERT ${HOST}: ${UNIT} failed (Result=${RESULT}, ExecMainStatus=${STATUS})
+
+--- last journal lines ---
+${LINES}"
+
+export TELEGRAM_ENV=/etc/telegram.env
+export TELEGRAM_BOT=AUTO
+
+printf '%s\n' "$MSG" | /usr/local/sbin/telegram-notify - || true

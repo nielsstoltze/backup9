@@ -6,6 +6,7 @@ After=network-online.target zfs-import.target
 Before=zfs-mount.service local-fs.target sysinit.target
 ConditionPathExists=/etc/zfs/zpool.cache
 ConditionPathExists=/usr/local/sbin/zfs-fetch-and-unlock
+OnFailure=systemd-failure-notify@%n.service
 
 [Service]
 Type=oneshot

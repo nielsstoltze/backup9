@@ -1,0 +1,9 @@
+[Unit]
+Description=Notify Telegram that %i failed
+# Don't ourselves trigger OnFailure (avoid notify-on-notify loops).
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/systemd-failure-notify %i
+# Best-effort: never propagate, never loop.
+SuccessExitStatus=0 1 2

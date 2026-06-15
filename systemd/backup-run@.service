@@ -3,6 +3,7 @@ Description=Run backup job %i
 After=network-online.target zfs-unlock-backup.service
 Wants=network-online.target
 Requires=zfs-unlock-backup.service
+OnFailure=systemd-failure-notify@%n.service
 
 [Service]
 Type=oneshot
