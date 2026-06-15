@@ -18,6 +18,16 @@ SSH_KEY="/root/.ssh/id_ed25519_app81-fetch"
 
 log() { logger -t zfs-fetch-and-unlock "$*"; echo "$*" >&2; }
 
+# Idempotent: if the pool is already unlocked (boot already ran us,
+# systemd just re-triggered for whatever reason), confirm mounts and
+# exit 0. Otherwise systemd's Restart=on-failure loops forever because
+# `zfs load-key` rejects a 2nd load with "Key already loaded".
+if [[ "$(zfs get -H -o value keystatus "$POOL" 2>/dev/null || echo unavailable)" == "available" ]]; then
+    log "pool=$POOL already unlocked (keystatus=available) -- ensuring mounts and exiting"
+    zfs mount -a 2>/dev/null || true
+    exit 0
+fi
+
 mkdir -p "$KEY_TMPFS_DIR"
 chmod 700 "$KEY_TMPFS_DIR"
 mount | grep -q " $KEY_TMPFS_DIR " || mount -t tmpfs -o size=1M,mode=0700 tmpfs "$KEY_TMPFS_DIR"
