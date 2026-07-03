@@ -42,11 +42,11 @@ while read -r name schedule; do
     [[ -z "$name" ]] && continue
     DROPIN="/etc/systemd/system/backup-run@${name}.timer.d"
     sudo mkdir -p "$DROPIN"
-    sudo install -m 0644 /dev/stdin "$DROPIN/schedule.conf" <<EOF
-[Timer]
-OnCalendar=
-OnCalendar=$schedule
-EOF
+    # NOTE: not `install /dev/stdin` -- Ubuntu 26.04's Rust coreutils
+    # (uutils) cannot install from /dev/stdin ("No such file or directory").
+    printf '[Timer]\nOnCalendar=\nOnCalendar=%s\n' "$schedule" \
+        | sudo tee "$DROPIN/schedule.conf" >/dev/null
+    sudo chmod 0644 "$DROPIN/schedule.conf"
     sudo systemctl enable --now "backup-run@${name}.timer"
     log "enabled timer for $name -> $schedule"
 done <<< "$JOBS"
