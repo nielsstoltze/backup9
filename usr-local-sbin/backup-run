@@ -139,9 +139,10 @@ def run_job(job_name: str) -> int:
     mount_pt = MOUNT_BASE / job_name
     mount_pt.mkdir(parents=True, exist_ok=True)
 
-    src = job["source"]                  # //freja/Backup
+    src = job["source"]                  # //freja/Backup  OR  user@host:path/ (type: ssh)
     dest = Path(job["dest"])             # /mnt/backup/freja/Backup
     pool_dataset = job["zfs_dataset"]    # backup/freja/Backup
+    jtype = job.get("type", "cifs")      # cifs (default) | ssh
 
     result = {
         "job": job_name,
@@ -153,12 +154,22 @@ def run_job(job_name: str) -> int:
     write_state(job_name, result)
 
     try:
-        # 1. cifs-mount source read-only
-        cifs_opts = (
-            f"username={env['FREJA_USER']},password={env['FREJA_PASS']},"
-            f"ro,vers=3.0,uid=0,gid=0,file_mode=0444,dir_mode=0555,iocharset=utf8"
-        )
-        sh(["mount", "-t", "cifs", src, str(mount_pt), "-o", cifs_opts])
+        # 1. source prep: cifs jobs mount the SMB share read-only; ssh jobs
+        # pull straight from user@host:path over rsync/ssh (dedicated
+        # restricted key, see docs) -- nothing to mount.
+        if jtype == "cifs":
+            cifs_opts = (
+                f"username={env['FREJA_USER']},password={env['FREJA_PASS']},"
+                f"ro,vers=3.0,uid=0,gid=0,file_mode=0444,dir_mode=0555,iocharset=utf8"
+            )
+            sh(["mount", "-t", "cifs", src, str(mount_pt), "-o", cifs_opts])
+            rsync_src = f"{mount_pt}/"
+            rsync_transport = []
+        else:  # ssh
+            rsync_src = src if src.endswith("/") else src + "/"
+            rsync_transport = ["-e",
+                "ssh -i /root/.ssh/backup_pull_ed25519 -o BatchMode=yes "
+                "-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"]
 
         # 2. rsync into dataset mountpoint -- capture stdout so we can
         # parse `--stats` for source/transferred byte totals while still
@@ -166,7 +177,8 @@ def run_job(job_name: str) -> int:
         rsync_cmd = [
             "rsync", "-aH", "--delete-after", "--partial",
             "--numeric-ids", "--stats",
-            f"{mount_pt}/", f"{dest}/",
+            *rsync_transport,
+            rsync_src, f"{dest}/",
         ]
         for flag in job.get("rsync_extra", []):
             rsync_cmd.append(flag)
@@ -202,8 +214,9 @@ def run_job(job_name: str) -> int:
         notify("FAIL", f"backup9 {job_name} failed: {result['error']}")
         return 1
     finally:
-        # 4. unmount even if we errored
-        sh(["umount", "-l", str(mount_pt)], check=False)
+        # 4. unmount even if we errored (cifs jobs only; ssh jobs mount nothing)
+        if jtype == "cifs":
+            sh(["umount", "-l", str(mount_pt)], check=False)
         finished = dt.datetime.now(dt.timezone.utc)
         result["finished"] = finished.isoformat()
         result["duration_s"] = (finished - started).total_seconds()

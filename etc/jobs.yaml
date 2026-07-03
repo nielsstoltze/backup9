@@ -49,3 +49,23 @@ jobs:
     zfs_dataset: backup/freja/Yvonne
     schedule: "*-*-* 03:00:00"
     rsync_extra: []
+
+  # --- lab hosts (type: ssh) -- pull the nightly backup-stage dir that
+  # infra/scripts/backup-stage.sh assembles at 04:30 on each host (non-git
+  # state only: secrets, sqlite, systemd units, docker conf + pg dumps,
+  # acme certs). Uses /root/.ssh/backup_pull_ed25519 (restricted key).
+  - name: lab-app81
+    type: ssh
+    source: local_admin@100.67.4.81:/home/local_admin/backup-stage/
+    dest: /mnt/backup/lab/app81
+    zfs_dataset: backup/lab/app81
+    schedule: "*-*-* 05:15:00"
+    rsync_extra: []
+
+  - name: lab-chost11
+    type: ssh
+    source: local_admin@100.67.5.11:/home/local_admin/backup-stage/
+    dest: /mnt/backup/lab/chost11
+    zfs_dataset: backup/lab/chost11
+    schedule: "*-*-* 05:45:00"
+    rsync_extra: []
