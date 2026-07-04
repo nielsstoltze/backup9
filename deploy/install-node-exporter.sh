@@ -36,9 +36,13 @@ fi
 
 echo "== 4/4 verify =="
 sleep 2
-if curl -s --max-time 5 http://127.0.0.1:9100/metrics | grep -q '^node_systemd_unit_state'; then
+# NB: with the systemd collector /metrics is BIG -- a short curl timeout cuts
+# the stream mid-family (exporter logs 'write: connection reset by peer') and
+# the grep false-FAILs. Check the collector's own success gauge instead.
+if curl -s --max-time 30 http://127.0.0.1:9100/metrics \
+     | grep -q 'node_scrape_collector_success{collector="systemd"} 1'; then
   echo "   OK: node_exporter up, systemd collector active"
 else
-  echo "   FAIL: no node_systemd_unit_state in /metrics" >&2
+  echo "   FAIL: systemd collector not reporting success" >&2
   exit 1
 fi
