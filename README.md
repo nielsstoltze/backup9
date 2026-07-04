@@ -43,13 +43,22 @@ Why this shape:
 - **sanoid** for retention (we don't roll our own snapshot pruning).
 - **One dataset per FREJA share** for independent retention / per-share size.
 
+## Deploy model
+
+`/opt/backup9` on the box is a **git clone** of this repo (converted
+2026-07-04; read-only deploy key `~/.ssh/id_backup9_deploy`, registered
+on GitHub as "backup9-deploy"). Deploy = commit+push here, then on the
+box: `git -C /opt/backup9 pull`. **Never edit files directly on the
+box** — drift shows in `git status` and is clobbered by the next pull.
+`/etc/backup9/secrets.env` + keys live outside the repo.
+
 ## First install
 
 Order matters:
 
 ```bash
-# 1. clone this repo onto backup9
-git clone https://github.com/nielsstoltze/backup9 /opt/backup9
+# 1. clone this repo onto backup9 (ssh remote + deploy key; see Deploy model)
+git clone git@github.com:nielsstoltze/backup9 /opt/backup9
 sudo ln -s /opt/backup9 /opt/backup9-current  # symlink for upgrade later
 
 # 2. apply hardening (incl. dpkg-divert for OSC 3008)
