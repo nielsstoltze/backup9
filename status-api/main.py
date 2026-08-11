@@ -167,7 +167,7 @@ def index():
         </tr>""")
 
     html = f"""<!doctype html>
-<html lang="en">
+<html lang="en" class="holo">
 <head>
 <meta charset="utf-8">
 <title>backup9 status</title>
@@ -175,6 +175,8 @@ def index():
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="https://apollo.hoej.eu/static/lab-header.css">
 <script src="https://apollo.hoej.eu/static/lab-header.js" defer></script>
+<!-- nosemgrep: html.security.audit.missing-integrity.missing-integrity (first-party internal shared holo theme; updates independently so a pinned SRI hash would break on every rebuild) -->
+<link rel="stylesheet" href="https://apollo.hoej.eu/static/holo/holo.css">
 <style>
   :root {{
     --bg:#11141a; --fg:#d8dee9; --muted:#6c7686;
